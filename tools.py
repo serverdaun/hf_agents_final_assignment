@@ -73,3 +73,94 @@ def arxiv_search(query: str) -> str:
     )
 
     return formatted_results
+
+
+#=========================================
+# Math Tools
+#=========================================
+@tool
+def add(x: float, y: float) -> float:
+    """
+    Add two numbers.
+    Args:
+        x (float): First number.
+        y (float): Second number.
+    Returns:
+        float: The sum of x and y.
+    """
+    return x + y
+
+@tool
+def subtract(x: float, y: float) -> float:
+    """
+    Subtract two numbers.
+    Args:
+        x (float): First number.
+        y (float): Second number.
+    Returns:
+        float: The difference of x and y.
+    """
+    return x - y
+
+@tool
+def multiply(x: float, y: float) -> float:
+    """
+    Multiply two numbers.
+    Args:
+        x (float): First number.
+        y (float): Second number.
+    Returns:
+        float: The product of x and y.
+    """
+    return x * y
+
+@tool
+def divide(x: float, y: float) -> float:
+    """
+    Divide two numbers.
+    Args:
+        x (float): First number.
+        y (float): Second number.
+    Returns:
+        float: The quotient of x and y.
+    """
+    if y == 0:
+        raise ValueError("Cannot divide by zero.")
+    return x / y
+
+@tool
+def power(x: float, y: float) -> float:
+    """
+    Raise x to the power of y.
+    Args:
+        x (float): Base number.
+        y (float): Exponent.
+    Returns:
+        float: The result of x raised to the power of y.
+    """
+    return x ** y
+
+@tool
+def sqrt(x: float) -> float:
+    """
+    Calculate the square root of x.
+    Args:
+        x (float): The number to find the square root of.
+    Returns:
+        float: The square root of x.
+    """
+    if x < 0:
+        raise ValueError("Cannot calculate square root of a negative number.")
+    return x ** 0.5
+
+@tool
+def modulus(x: float, y: float) -> float:
+    """
+    Calculate the modulus of x and y.
+    Args:
+        x (float): First number.
+        y (float): Second number.
+    Returns:
+        float: The modulus of x and y.
+    """
+    return x % y
