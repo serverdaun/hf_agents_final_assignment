@@ -3,6 +3,9 @@ import gradio as gr
 import requests
 import inspect
 import pandas as pd
+from agent import build_agent
+from config import SYSTEM_PROMPT, SPACE_ID
+from langchain_core.messages import SystemMessage, HumanMessage
 
 # (Keep Constants as is)
 # --- Constants ---
@@ -12,12 +15,19 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 # ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
 class BasicAgent:
     def __init__(self):
+        self.agent = build_agent()
         print("BasicAgent initialized.")
     def __call__(self, question: str) -> str:
-        print(f"Agent received question (first 50 chars): {question[:50]}...")
-        fixed_answer = "This is a default answer."
-        print(f"Agent returning fixed answer: {fixed_answer}")
-        return fixed_answer
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=question)
+        ]
+        messages = self.graph.invoke({"messages": messages})
+
+        answer = messages['messages'][-1].content
+        final_answer = answer.split("FINAL ANSWER: ")[-1].strip()
+
+        return final_answer
 
 def run_and_submit_all( profile: gr.OAuthProfile | None):
     """
@@ -25,7 +35,8 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
     and displays the results.
     """
     # --- Determine HF Space Runtime URL and Repo URL ---
-    space_id = os.getenv("SPACE_ID") # Get the SPACE_ID for sending link to the code
+    # space_id = os.getenv("SPACE_ID") # Get the SPACE_ID for sending link to the code
+    space_id = SPACE_ID
 
     if profile:
         username= f"{profile.username}"

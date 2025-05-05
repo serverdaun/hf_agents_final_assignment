@@ -1,2 +1,14 @@
 gradio
 requests
+pandas
+langchain
+python-dotenv
+langgraph
+langchain_openai
+langchain_community
+langchain_tavily
+wikipedia
+pymupdf
+arxiv
+flake8
+langchain_huggingface
