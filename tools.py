@@ -3,6 +3,8 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
 from config import TAVILY_API_KEY
+import requests
+from bs4 import BeautifulSoup
 
 
 #=========================================
@@ -11,23 +13,57 @@ from config import TAVILY_API_KEY
 @tool
 def wiki_search(query: str) -> str:
     """
-    Search Wikipedia for a given query and return top 3 results.
+    Search Wikipedia for a given query, return top 3 results and scrape full content.
     Args:
         query (str): The search query.
     Returns:
-        str: Formatted string containing the titles, URLs and content of the top 3 Wikipedia articles.
+        str: Formatted string containing the titles, URLs, content snippets and full webpage content of the top 3 Wikipedia articles.
     """
-    docs = WikipediaLoader(query=query, load_max_docs=3).load()
+    docs = WikipediaLoader(query=query, load_max_docs=2).load()
 
-    # Format the results
-    formatted_results = "\n\n\n--------------\n\n\n".join(
-        [
-            f"*Metadata*:\nTitle: {doc.metadata.get('title')}\nURL: {doc.metadata.get('source')}\n\n"
-            f"*Content*:\n{doc.page_content}"
-            for doc in docs
-        ]
-    )
+    results = []
+    for doc in docs:
+        # Get the standard wiki summary
+        wiki_summary = f"\nTitle: {doc.metadata.get('title')}\nURL: {doc.metadata.get('source')}\n\n"
+        
+        # Scrape and clean the full webpage
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get(doc.metadata.get('source'), headers=headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove unwanted elements
+            unwanted_elements = [
+                '.mw-jump-link', '.mw-editsection', '.reference',  # Wiki specific
+                '#mw-navigation', '#mw-head', '#mw-panel',  # Navigation
+                '.navbox', '.vertical-navbox', '.sidebar',  # Navigation boxes
+                '.noprint', '.printfooter', '.catlinks',  # Printing related
+                '#toc', '.toc', '#site-navigation',  # Table of contents
+            ]
+            for element in soup.select(','.join(unwanted_elements)):
+                element.decompose()
+            
+            # Get main content area
+            content_div = soup.select_one('#mw-content-text')
+            if content_div:
+                # Remove disambiguation elements if present
+                for disambig in content_div.select('.hatnote, .dmbox-disambig'):
+                    disambig.decompose()
+                full_text = content_div.get_text(separator='\n', strip=True)
+            else:
+                full_text = soup.get_text(separator='\n', strip=True)
 
+            
+            # Combine wiki summary with cleaned webpage content
+            combined_result = f"{wiki_summary}\n### Full Article Content ###\n{full_text}"
+            results.append(combined_result)
+            
+        except Exception as e:
+            results.append(wiki_summary)
+
+    # Join all results with clear separators
+    formatted_results = "\n\n" + "="*20 + "\n\n".join(results)
     return formatted_results
 
 @tool
@@ -39,7 +75,7 @@ def tavily_search(query: str) -> str:
     Returns:
         str: Formatted string containing the titles, URLs and content of the top 3 Tavily search results.
     """
-    results = TavilySearchResults(max_results=3, tavily_api_key=TAVILY_API_KEY).invoke({"query": query})
+    results = TavilySearchResults(max_results=5, tavily_api_key=TAVILY_API_KEY).invoke({"query": query})
 
     # Format the results
     formatted_results = "\n\n\n--------------\n\n\n".join(
@@ -61,7 +97,7 @@ def arxiv_search(query: str) -> str:
     Returns:
         str: Formatted string containing the titles, URLs and content of the top 3 Arxiv search results.
     """
-    docs = ArxivLoader(query=query, load_max_docs=3).load()
+    docs = ArxivLoader(query=query, load_max_docs=5).load()
 
     # Format the results
     formatted_results = "\n\n\n--------------\n\n\n".join(
@@ -74,6 +110,30 @@ def arxiv_search(query: str) -> str:
 
     return formatted_results
 
+@tool
+def scrape_webpage(url: str) -> str:
+    """
+    Scrape the main content from a webpage.
+    Args:
+        url (str): The URL of the webpage to scrape.
+    Returns:
+        str: The main text content of the webpage.
+    """
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(['script', 'style']):
+            script.decompose()
+            
+        # Get text content
+        text = soup.get_text(separator='\n', strip=True)
+        return text
+    except Exception as e:
+        return f"Error scraping webpage: {str(e)}"
 
 #=========================================
 # Math Tools
