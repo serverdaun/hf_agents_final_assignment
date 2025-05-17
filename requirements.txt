@@ -1,6 +1,7 @@
 gradio
 requests
 pandas
+openpyxl
 langchain
 python-dotenv
 langgraph
@@ -12,3 +13,12 @@ pymupdf
 arxiv
 flake8
 langchain_huggingface
+gradio[oauth]
+beautifulsoup4
+requests
+matplotlib
+pillow
+torch
+transformers
+openai
+faster-whisper
