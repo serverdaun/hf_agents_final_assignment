@@ -5,7 +5,11 @@ from langchain_community.document_loaders import ArxivLoader
 from config import TAVILY_API_KEY
 import requests
 from bs4 import BeautifulSoup
-
+from PIL import Image
+from pathlib import Path
+import base64
+from openai import AzureOpenAI
+from config import MODEL_NAME, MODEL_API_VERSION, MODEL_ENDPOINT, MODEL_KEY
 
 #=========================================
 # Search Tools
@@ -224,3 +228,174 @@ def modulus(x: float, y: float) -> float:
         float: The modulus of x and y.
     """
     return x % y
+
+@tool
+def is_commutative(set_elements: list, operation_table: list) -> bool:
+    """
+    Check if the operation is commutative for the given set and operation table.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        bool: True if commutative, False otherwise.
+    """
+    n = len(set_elements)
+    for i in range(n):
+        for j in range(n):
+            if operation_table[i][j] != operation_table[j][i]:
+                return False
+    return True
+
+@tool
+def commutativity_counterexample_pairs(set_elements: list, operation_table: list) -> list:
+    """
+    Return all pairs (as tuples) where commutativity fails: (x, y) such that x*y != y*x.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        list: List of tuples (x, y) where commutativity fails.
+    """
+    n = len(set_elements)
+    pairs = []
+    for i in range(n):
+        for j in range(n):
+            if operation_table[i][j] != operation_table[j][i]:
+                pairs.append((set_elements[i], set_elements[j]))
+    return pairs
+
+@tool
+def commutativity_counterexample_elements(set_elements: list, operation_table: list) -> str:
+    """
+    Return the set of elements involved in any commutativity counter-example, as a sorted, comma-separated string.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        str: Sorted, comma-separated string of elements involved in any commutativity counter-example.
+    """
+    involved = set()
+    n = len(set_elements)
+    for i in range(n):
+        for j in range(n):
+            if operation_table[i][j] != operation_table[j][i]:
+                involved.add(set_elements[i])
+                involved.add(set_elements[j])
+    return ",".join(sorted(involved))
+
+@tool
+def is_associative(set_elements: list, operation_table: list) -> bool:
+    """
+    Check if the operation is associative for the given set and operation table.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        bool: True if associative, False otherwise.
+    """
+    n = len(set_elements)
+    idx = {e: i for i, e in enumerate(set_elements)}
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                a = operation_table[i][j]
+                a_idx = idx[a]
+                left = operation_table[a_idx][k]
+                b = operation_table[j][k]
+                b_idx = idx[b]
+                right = operation_table[i][b_idx]
+                if left != right:
+                    return False
+    return True
+
+@tool
+def find_identity_element(set_elements: list, operation_table: list) -> str:
+    """
+    Find the identity element in the set, if it exists.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        str: The identity element, or an empty string if none exists.
+    """
+    n = len(set_elements)
+    for i in range(n):
+        candidate = set_elements[i]
+        is_identity = True
+        for j in range(n):
+            if operation_table[i][j] != set_elements[j] or operation_table[j][i] != set_elements[j]:
+                is_identity = False
+                break
+        if is_identity:
+            return candidate
+    return ""
+
+@tool
+def find_inverses(set_elements: list, operation_table: list) -> dict:
+    """
+    For each element, find its inverse with respect to the operation, if it exists.
+    Args:
+        set_elements (list): List of elements in the set.
+        operation_table (list): 2D list representing the operation table.
+    Returns:
+        dict: Dictionary mapping each element to its inverse (or None if no inverse exists).
+    """
+    n = len(set_elements)
+    identity = find_identity_element(set_elements, operation_table)
+    if not identity:
+        return {e: None for e in set_elements}
+    idx = {e: i for i, e in enumerate(set_elements)}
+    identity_idx = idx[identity]
+    inverses = {}
+    for i in range(n):
+        found = None
+        for j in range(n):
+            if operation_table[i][j] == identity and operation_table[j][i] == identity:
+                found = set_elements[j]
+                break
+        inverses[set_elements[i]] = found
+    return inverses
+
+#=========================================
+# Image Tools
+#=========================================
+@tool
+def analyze_image(question: str, path: str) -> str:
+    """
+    Analyze image and answer question regarding it.
+    Args:
+        question (str): The question to ask about the image.
+        path (str): The path to the image file.
+    Returns:
+        str: The answer to the question about the image.
+    """
+    # path = "data/cca530fc-4052-43b2-b130-b30968d8aa44.png"
+
+    client = AzureOpenAI(
+        api_version=MODEL_API_VERSION,
+        azure_endpoint=MODEL_ENDPOINT,
+        api_key=MODEL_KEY,
+    )
+
+    p = Path(path).expanduser().resolve()
+    if not p.exists():
+        raise ValueError(f"Image file does not exist: {p}")
+    
+    mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+    with open(p, "rb") as f:
+        base64_image = f"data:{mime};base64,{base64.b64encode(f.read()).decode('utf-8')}"
+
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": base64_image}, "detail": "high"}
+                ]
+            }
+        ]
+    )
+
+    return response.choices[0].message.content.strip()
