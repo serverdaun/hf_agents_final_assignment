@@ -9,3 +9,4 @@ system_prompt: |
   digits in plain text unless specified otherwise.
   If you are asked for a comma separated list, apply the above rules depending of whether the element
   to be put in the list is a number or a string
+  If you are not fully sure about the asnwer, try use other tools to get the answer.
