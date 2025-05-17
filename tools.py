@@ -10,6 +10,7 @@ from pathlib import Path
 import base64
 from openai import AzureOpenAI
 from config import MODEL_NAME, MODEL_API_VERSION, MODEL_ENDPOINT, MODEL_KEY
+from faster_whisper import WhisperModel
 
 #=========================================
 # Search Tools
@@ -369,8 +370,6 @@ def analyze_image(question: str, path: str) -> str:
     Returns:
         str: The answer to the question about the image.
     """
-    # path = "data/cca530fc-4052-43b2-b130-b30968d8aa44.png"
-
     client = AzureOpenAI(
         api_version=MODEL_API_VERSION,
         azure_endpoint=MODEL_ENDPOINT,
@@ -399,3 +398,29 @@ def analyze_image(question: str, path: str) -> str:
     )
 
     return response.choices[0].message.content.strip()
+
+#=========================================
+# Audio Tools
+#=========================================
+@tool
+def transcribe_audio(path: str) -> str:
+    """
+    Transcribe audio file and return the text.
+    Args:
+        path (str): The path to the audio file.
+    Returns:
+        str: The transcribed text.
+    """
+    model = WhisperModel(
+        model_size_or_path="small",
+        device="cpu"
+    )
+
+    segments, _ = model.transcribe(
+        path,
+        vad_filter=True,
+        condition_on_previous_text=True,
+        beam_size=5
+    )
+    text = "".join(seg.text for seg in segments).strip()
+    return text
