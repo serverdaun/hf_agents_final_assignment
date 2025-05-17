@@ -1,28 +1,35 @@
-from langchain_core.tools import tool
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_community.document_loaders import WikipediaLoader
-from langchain_community.document_loaders import ArxivLoader
-from config import TAVILY_API_KEY
-import requests
-from bs4 import BeautifulSoup
-from PIL import Image
-from pathlib import Path
 import base64
-from openai import AzureOpenAI
-from config import MODEL_NAME, MODEL_API_VERSION, MODEL_ENDPOINT, MODEL_KEY
-from faster_whisper import WhisperModel
-from typing import Dict
+import io
+import json
 import shutil
 import subprocess as sp
 import tempfile
-import pandas as pd
 import textwrap
-import io
-import json
+from pathlib import Path
+from typing import Dict
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 
-#=========================================
+from config import (
+    TAVILY_API_KEY,
+    MODEL_NAME,
+    MODEL_API_VERSION,
+    MODEL_ENDPOINT,
+    MODEL_KEY,
+)
+
+from langchain_core.tools import tool
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.document_loaders import WikipediaLoader, ArxivLoader
+from openai import AzureOpenAI
+from faster_whisper import WhisperModel
+
+# =========================================
 # Search Tools
-#=========================================
+# =========================================
+
+
 @tool
 def wiki_search(query: str) -> str:
     """
@@ -38,14 +45,14 @@ def wiki_search(query: str) -> str:
     for doc in docs:
         # Get the standard wiki summary
         wiki_summary = f"\nTitle: {doc.metadata.get('title')}\nURL: {doc.metadata.get('source')}\n\n"
-        
+
         # Scrape and clean the full webpage
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             response = requests.get(doc.metadata.get('source'), headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             # Remove unwanted elements
             unwanted_elements = [
                 '.mw-jump-link', '.mw-editsection', '.reference',  # Wiki specific
@@ -56,7 +63,7 @@ def wiki_search(query: str) -> str:
             ]
             for element in soup.select(','.join(unwanted_elements)):
                 element.decompose()
-            
+
             # Get main content area
             content_div = soup.select_one('#mw-content-text')
             if content_div:
@@ -67,17 +74,18 @@ def wiki_search(query: str) -> str:
             else:
                 full_text = soup.get_text(separator='\n', strip=True)
 
-            
             # Combine wiki summary with cleaned webpage content
             combined_result = f"{wiki_summary}\n### Full Article Content ###\n{full_text}"
             results.append(combined_result)
-            
+
         except Exception as e:
+            print(f"Error scraping Wikipedia page: {e}")
             results.append(wiki_summary)
 
     # Join all results with clear separators
-    formatted_results = "\n\n" + "="*20 + "\n\n".join(results)
+    formatted_results = "\n\n" + "=" * 20 + "\n\n".join(results)
     return formatted_results
+
 
 @tool
 def tavily_search(query: str) -> str:
@@ -101,6 +109,7 @@ def tavily_search(query: str) -> str:
 
     return formatted_results
 
+
 @tool
 def arxiv_search(query: str) -> str:
     """
@@ -123,6 +132,7 @@ def arxiv_search(query: str) -> str:
 
     return formatted_results
 
+
 @tool
 def scrape_webpage(url: str) -> str:
     """
@@ -137,20 +147,23 @@ def scrape_webpage(url: str) -> str:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        
+
         # Remove script and style elements
         for script in soup(['script', 'style']):
             script.decompose()
-            
+
         # Get text content
         text = soup.get_text(separator='\n', strip=True)
         return text
     except Exception as e:
         return f"Error scraping webpage: {str(e)}"
 
-#=========================================
+
+# =========================================
 # Math Tools
-#=========================================
+# =========================================
+
+
 @tool
 def add(x: float, y: float) -> float:
     """
@@ -162,6 +175,7 @@ def add(x: float, y: float) -> float:
         float: The sum of x and y.
     """
     return x + y
+
 
 @tool
 def subtract(x: float, y: float) -> float:
@@ -175,6 +189,7 @@ def subtract(x: float, y: float) -> float:
     """
     return x - y
 
+
 @tool
 def multiply(x: float, y: float) -> float:
     """
@@ -186,6 +201,7 @@ def multiply(x: float, y: float) -> float:
         float: The product of x and y.
     """
     return x * y
+
 
 @tool
 def divide(x: float, y: float) -> float:
@@ -201,6 +217,7 @@ def divide(x: float, y: float) -> float:
         raise ValueError("Cannot divide by zero.")
     return x / y
 
+
 @tool
 def power(x: float, y: float) -> float:
     """
@@ -212,6 +229,7 @@ def power(x: float, y: float) -> float:
         float: The result of x raised to the power of y.
     """
     return x ** y
+
 
 @tool
 def sqrt(x: float) -> float:
@@ -226,6 +244,7 @@ def sqrt(x: float) -> float:
         raise ValueError("Cannot calculate square root of a negative number.")
     return x ** 0.5
 
+
 @tool
 def modulus(x: float, y: float) -> float:
     """
@@ -237,6 +256,7 @@ def modulus(x: float, y: float) -> float:
         float: The modulus of x and y.
     """
     return x % y
+
 
 @tool
 def is_commutative(set_elements: list, operation_table: list) -> bool:
@@ -254,6 +274,7 @@ def is_commutative(set_elements: list, operation_table: list) -> bool:
             if operation_table[i][j] != operation_table[j][i]:
                 return False
     return True
+
 
 @tool
 def commutativity_counterexample_pairs(set_elements: list, operation_table: list) -> list:
@@ -273,6 +294,7 @@ def commutativity_counterexample_pairs(set_elements: list, operation_table: list
                 pairs.append((set_elements[i], set_elements[j]))
     return pairs
 
+
 @tool
 def commutativity_counterexample_elements(set_elements: list, operation_table: list) -> str:
     """
@@ -291,6 +313,7 @@ def commutativity_counterexample_elements(set_elements: list, operation_table: l
                 involved.add(set_elements[i])
                 involved.add(set_elements[j])
     return ",".join(sorted(involved))
+
 
 @tool
 def is_associative(set_elements: list, operation_table: list) -> bool:
@@ -317,6 +340,7 @@ def is_associative(set_elements: list, operation_table: list) -> bool:
                     return False
     return True
 
+
 @tool
 def find_identity_element(set_elements: list, operation_table: list) -> str:
     """
@@ -339,6 +363,7 @@ def find_identity_element(set_elements: list, operation_table: list) -> str:
             return candidate
     return ""
 
+
 @tool
 def find_inverses(set_elements: list, operation_table: list) -> dict:
     """
@@ -353,8 +378,6 @@ def find_inverses(set_elements: list, operation_table: list) -> dict:
     identity = find_identity_element(set_elements, operation_table)
     if not identity:
         return {e: None for e in set_elements}
-    idx = {e: i for i, e in enumerate(set_elements)}
-    identity_idx = idx[identity]
     inverses = {}
     for i in range(n):
         found = None
@@ -365,9 +388,12 @@ def find_inverses(set_elements: list, operation_table: list) -> dict:
         inverses[set_elements[i]] = found
     return inverses
 
-#=========================================
+
+# =========================================
 # Image Tools
-#=========================================
+# =========================================
+
+
 @tool
 def analyze_image(question: str, path: str) -> str:
     """
@@ -387,7 +413,7 @@ def analyze_image(question: str, path: str) -> str:
     p = Path(path).expanduser().resolve()
     if not p.exists():
         raise ValueError(f"Image file does not exist: {p}")
-    
+
     mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
     with open(p, "rb") as f:
         base64_image = f"data:{mime};base64,{base64.b64encode(f.read()).decode('utf-8')}"
@@ -407,9 +433,12 @@ def analyze_image(question: str, path: str) -> str:
 
     return response.choices[0].message.content.strip()
 
-#=========================================
+
+# =========================================
 # Audio Tools
-#=========================================
+# =========================================
+
+
 @tool
 def transcribe_audio(path: str) -> str:
     """
@@ -433,21 +462,24 @@ def transcribe_audio(path: str) -> str:
     text = "".join(seg.text for seg in segments).strip()
     return text
 
-#=========================================
+
+# =========================================
 # Code Tools
-#=========================================
+# =========================================
+
 LANG_COMMANDS: Dict[str, callable] = {
-    ".py": lambda s, _:[["python3", s.name]],
-    ".js": lambda s, _:[["node", s.name]],
-    ".ts": lambda s, _:[["deno", "run", "-A", s.name]],
-    ".sh": lambda s, _:[["bash", s.name]],
-    ".rb": lambda s, _:[["ruby", s.name]],
-    ".php": lambda s, _:[["php", s.name]],
-    ".go": lambda s, _:[["go", "run", s.name]]
+    ".py": lambda s, _: [["python3", s.name]],
+    ".js": lambda s, _: [["node", s.name]],
+    ".ts": lambda s, _: [["deno", "run", "-A", s.name]],
+    ".sh": lambda s, _: [["bash", s.name]],
+    ".rb": lambda s, _: [["ruby", s.name]],
+    ".php": lambda s, _: [["php", s.name]],
+    ".go": lambda s, _: [["go", "run", s.name]]
 }
 
+
 @tool
-def execute_source_file(path: str, timeout: int=10) -> str:
+def execute_source_file(path: str, timeout: int = 10) -> str:
     """
     Run the program contained in *path*
     Returns a newline-separated string:
@@ -463,7 +495,7 @@ def execute_source_file(path: str, timeout: int=10) -> str:
     src = Path(path).expanduser().resolve(strict=True)
     if src.suffix not in LANG_COMMANDS:
         raise ValueError(f"Unsupported file extension: {src.suffix}")
-    
+
     # Temp work dir for the program
     work = Path(tempfile.mkdtemp(prefix="exec_tool_"))
     shutil.copy(src, work / src.name)
@@ -490,14 +522,17 @@ def execute_source_file(path: str, timeout: int=10) -> str:
             f"STDOUT: {full_out}\n"
             f"STDERR: {full_err}"
         )
-    
+
     finally:
         shutil.rmtree(work)
 
-#=========================================
+
+# =========================================
 # Tabular data tools
-#=========================================
+# =========================================
+
 MAX_BYTES_RETURN = 200000
+
 
 # Helper functions
 def _load_table(path: Path, sheet: str) -> pd.DataFrame:
@@ -517,6 +552,7 @@ def _load_table(path: Path, sheet: str) -> pd.DataFrame:
     if ext in (".parquet"):
         return pd.read_parquet(path)
     raise ValueError(f"Unsupported file extension: {ext}")
+
 
 def _safe_truncate(text: str, limit: int = MAX_BYTES_RETURN) -> tuple[str, bool]:
     """
@@ -580,7 +616,7 @@ def interact_tabular(file_path: str, operation: str = "summary", sheet: str = "S
         result = buf.getvalue()
     else:
         raise ValueError(f"Unsupported operation: {operation}")
-    
+
     result, truncated = _safe_truncate(result)
 
     info = {

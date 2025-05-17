@@ -1,14 +1,29 @@
 import os
-import gradio as gr
+import tempfile
+import atexit
 import requests
-import inspect
+import gradio as gr
 import pandas as pd
 from agent import build_agent
 from config import SYSTEM_PROMPT, SPACE_ID
 from langchain_core.messages import SystemMessage, HumanMessage
 
+
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
+
+TEMP_FILES = []
+
+
+def cleanup_temp_files():
+    for path in TEMP_FILES:
+        try:
+            os.remove(path)
+        except Exception as e:
+            print(f"Could not delete temp file {path}: {e}")
+
+
+atexit.register(cleanup_temp_files)
 
 
 def get_file(task_id: str) -> requests.Response:
@@ -20,6 +35,7 @@ def get_file(task_id: str) -> requests.Response:
     response.raise_for_status()
     return response
 
+
 def get_question_data(elem: dict) -> tuple[str, str]:
     """
     Fetches question text and file path if there are any.
@@ -30,15 +46,18 @@ def get_question_data(elem: dict) -> tuple[str, str]:
     """
     question_text = elem["question"]
     file_name = elem["file_name"]
+    file_path = None
 
     if file_name != "":
         task_id = elem["task_id"]
         response = get_file(task_id=task_id)
 
-        file_path = f"data/{file_name}"
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, file_name)
         with open(file_path, "wb") as f:
             f.write(response.content)
-    
+        TEMP_FILES.append(file_path)
+
     return file_path, question_text
 
 
@@ -47,7 +66,8 @@ class BasicAgent:
     def __init__(self):
         self.agent = build_agent()
         print("BasicAgent initialized.")
-    def __call__(self, question: str, file_path: str=None) -> str:
+
+    def __call__(self, question: str, file_path: str = None) -> str:
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
         ]
@@ -65,17 +85,17 @@ class BasicAgent:
 
         return final_answer
 
-def run_and_submit_all( profile: gr.OAuthProfile | None):
+
+def run_and_submit_all(profile: gr.OAuthProfile | None):
     """
     Fetches all questions, runs the BasicAgent on them, submits all answers,
     and displays the results.
     """
     # --- Determine HF Space Runtime URL and Repo URL ---
-    # space_id = os.getenv("SPACE_ID") # Get the SPACE_ID for sending link to the code
     space_id = SPACE_ID
 
     if profile:
-        username= f"{profile.username}"
+        username = f"{profile.username}"
         print(f"User logged in: {username}")
     else:
         print("User not logged in.")
@@ -102,16 +122,16 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
         response.raise_for_status()
         questions_data = response.json()
         if not questions_data:
-             print("Fetched questions list is empty.")
-             return "Fetched questions list is empty or invalid format.", None
+            print("Fetched questions list is empty.")
+            return "Fetched questions list is empty or invalid format.", None
         print(f"Fetched {len(questions_data)} questions.")
     except requests.exceptions.RequestException as e:
         print(f"Error fetching questions: {e}")
         return f"Error fetching questions: {e}", None
     except requests.exceptions.JSONDecodeError as e:
-         print(f"Error decoding JSON response from questions endpoint: {e}")
-         print(f"Response text: {response.text[:500]}")
-         return f"Error decoding server response for questions: {e}", None
+        print(f"Error decoding JSON response from questions endpoint: {e}")
+        print(f"Response text: {response.text[:500]}")
+        return f"Error decoding server response for questions: {e}", None
     except Exception as e:
         print(f"An unexpected error occurred fetching questions: {e}")
         return f"An unexpected error occurred fetching questions: {e}", None
@@ -132,14 +152,14 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
             print(f"Task ID: {task_id}, Question: {question_text}, Submitted Answer: {submitted_answer}")
         except Exception as e:
-             print(f"Error running agent on task {task_id}: {e}")
-             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": f"AGENT ERROR: {e}"})
+            print(f"Error running agent on task {task_id}: {e}")
+            results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": f"AGENT ERROR: {e}"})
 
     if not answers_payload:
         print("Agent did not produce any answers to submit.")
         return "Agent did not produce any answers to submit.", pd.DataFrame(results_log)
 
-    # 4. Prepare Submission 
+    # 4. Prepare Submission
     submission_data = {"username": username.strip(), "agent_code": agent_code, "answers": answers_payload}
     status_update = f"Agent finished. Submitting {len(answers_payload)} answers for user '{username}'..."
     print(status_update)
@@ -219,11 +239,12 @@ with gr.Blocks() as demo:
         outputs=[status_output, results_table]
     )
 
+
 if __name__ == "__main__":
-    print("\n" + "-"*30 + " App Starting " + "-"*30)
+    print("\n" + "-" * 30 + " App Starting " + "-" * 30)
     # Check for SPACE_HOST and SPACE_ID at startup for information
     space_host_startup = os.getenv("SPACE_HOST")
-    space_id_startup = os.getenv("SPACE_ID") # Get SPACE_ID at startup
+    space_id_startup = os.getenv("SPACE_ID")  # Get SPACE_ID at startup
 
     if space_host_startup:
         print(f"✅ SPACE_HOST found: {space_host_startup}")
@@ -231,14 +252,15 @@ if __name__ == "__main__":
     else:
         print("ℹ️  SPACE_HOST environment variable not found (running locally?).")
 
-    if space_id_startup: # Print repo URLs if SPACE_ID is found
+    if space_id_startup:  # Print repo URLs if SPACE_ID is found
         print(f"✅ SPACE_ID found: {space_id_startup}")
-        print(f"   Repo URL: https://huggingface.co/spaces/{space_id_startup}")
-        print(f"   Repo Tree URL: https://huggingface.co/spaces/{space_id_startup}/tree/main")
+        print(f"Repo URL: https://huggingface.co/spaces/{space_id_startup}")
+        print(f"Repo Tree URL: https://huggingface.co/spaces/{space_id_startup}/tree/main")
     else:
-        print("ℹ️  SPACE_ID environment variable not found (running locally?). Repo URL cannot be determined.")
+        print("ℹ️  SPACE_ID environment variable not found (running locally?)."
+              "Repo URL cannot be determined.")
 
-    print("-"*(60 + len(" App Starting ")) + "\n")
+    print("-" * (60 + len(" App Starting ")) + "\n")
 
     print("Launching Gradio Interface for Basic Agent Evaluation...")
     demo.launch(debug=True, share=False)

@@ -1,17 +1,38 @@
-import os
-from typing import TypedDict, Annotated
-from dotenv import load_dotenv
-from langgraph.graph.message import add_messages
-from langchain_core.messages import AnyMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph import START, StateGraph, MessagesState
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
-from tools import wiki_search, tavily_search, arxiv_search, add, subtract, multiply, divide, power, sqrt, modulus
+from langchain_openai import AzureChatOpenAI
 
+from config import (
+    MODEL_ENDPOINT,
+    MODEL_KEY,
+    MODEL_NAME,
+    MODEL_API_VERSION,
+)
 
-load_dotenv()
-HF_TOKEN = os.getenv("HF_TOKEN")
+from tools import (
+    wiki_search,
+    tavily_search,
+    arxiv_search,
+    add,
+    subtract,
+    multiply,
+    divide,
+    power,
+    sqrt,
+    modulus,
+    scrape_webpage,
+    analyze_image,
+    is_commutative,
+    commutativity_counterexample_pairs,
+    commutativity_counterexample_elements,
+    find_identity_element,
+    find_inverses,
+    transcribe_audio,
+    execute_source_file,
+    interact_tabular,
+)
 
+# Define tools
 TOOLS = [
     wiki_search,
     tavily_search,
@@ -22,31 +43,48 @@ TOOLS = [
     divide,
     power,
     sqrt,
-    modulus
+    modulus,
+    scrape_webpage,
+    analyze_image,
+    is_commutative,
+    commutativity_counterexample_pairs,
+    commutativity_counterexample_elements,
+    find_identity_element,
+    find_inverses,
+    transcribe_audio,
+    execute_source_file,
+    interact_tabular
 ]
 
-def build_agent():
-    # Define llm from Hugging Face
-    llm = HuggingFaceEndpoint(
-        repo_id="Qwen/Qwen2.5-Coder-32B-Instruct",
-        huggingfacehub_api_token=HF_TOKEN
+
+def build_agent() -> StateGraph:
+    """
+    Build the agent.
+    Returns:
+        StateGraph: The agent graph.
+    """
+    llm = AzureChatOpenAI(
+        azure_deployment=MODEL_NAME,
+        api_version=MODEL_API_VERSION,
+        azure_endpoint=MODEL_ENDPOINT,
+        api_key=MODEL_KEY,
     )
 
-    # Define chat interface and the tools
-    chat = ChatHuggingFace(llm=llm, verbose=True)
-    chat_w_tools = chat.bind_tools(TOOLS)
+    chat_w_tools = llm.bind_tools(TOOLS)
 
-    # Node
+    # Assistant node
     def assistant(state: MessagesState):
         """Assistant node"""
         return {"messages": [chat_w_tools.invoke(state["messages"])]}
 
-
+    # Build graph
     builder = StateGraph(MessagesState)
 
+    # Add nodes
     builder.add_node("assistant", assistant)
     builder.add_node("tools", ToolNode(TOOLS))
 
+    # Add edges
     builder.add_edge(START, "assistant")
     builder.add_conditional_edges(
         "assistant",
@@ -54,5 +92,5 @@ def build_agent():
     )
     builder.add_edge("tools", "assistant")
 
-    # Compile graph
+    # Compile graph and return it
     return builder.compile()
