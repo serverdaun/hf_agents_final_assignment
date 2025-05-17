@@ -7,22 +7,58 @@ from agent import build_agent
 from config import SYSTEM_PROMPT, SPACE_ID
 from langchain_core.messages import SystemMessage, HumanMessage
 
-# (Keep Constants as is)
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
+
+def get_file(task_id: str) -> requests.Response:
+    """I
+    Fetches the file associated with a task ID.
+    """
+    file_url = f"{DEFAULT_API_URL}/files/{task_id}"
+    response = requests.get(file_url, timeout=15)
+    response.raise_for_status()
+    return response
+
+def get_question_data(elem: dict) -> tuple[str, str]:
+    """
+    Fetches question text and file path if there are any.
+    Args:
+        elem (dict): A dictionary containing question data.
+    Returns:
+        tuple: file path and question text.
+    """
+    question_text = elem["question"]
+    file_name = elem["file_name"]
+
+    if file_name != "":
+        task_id = elem["task_id"]
+        response = get_file(task_id=task_id)
+
+        file_path = f"data/{file_name}"
+        with open(file_path, "wb") as f:
+            f.write(response.content)
+    
+    return file_path, question_text
+
+
 # --- Basic Agent Definition ---
-# ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
 class BasicAgent:
     def __init__(self):
         self.agent = build_agent()
         print("BasicAgent initialized.")
-    def __call__(self, question: str) -> str:
+    def __call__(self, question: str, file_path: str=None) -> str:
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=question)
         ]
-        messages = self.graph.invoke({"messages": messages})
+        if file_path:
+            messages.append(HumanMessage(
+                content=f"{question}\n[FILE_PATH]: {file_path}"
+            ))
+        else:
+            messages.append(HumanMessage(content=question))
+
+        messages = self.agent.invoke({"messages": messages})
 
         answer = messages['messages'][-1].content
         final_answer = answer.split("FINAL ANSWER: ")[-1].strip()
@@ -86,14 +122,15 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
     print(f"Running agent on {len(questions_data)} questions...")
     for item in questions_data:
         task_id = item.get("task_id")
-        question_text = item.get("question")
+        file_path, question_text = get_question_data(item)
         if not task_id or question_text is None:
             print(f"Skipping item with missing task_id or question: {item}")
             continue
         try:
-            submitted_answer = agent(question_text)
+            submitted_answer = agent(question_text, file_path=file_path)
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
+            print(f"Task ID: {task_id}, Question: {question_text}, Submitted Answer: {submitted_answer}")
         except Exception as e:
              print(f"Error running agent on task {task_id}: {e}")
              results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": f"AGENT ERROR: {e}"})
