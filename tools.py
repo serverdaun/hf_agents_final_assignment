@@ -11,6 +11,10 @@ import base64
 from openai import AzureOpenAI
 from config import MODEL_NAME, MODEL_API_VERSION, MODEL_ENDPOINT, MODEL_KEY
 from faster_whisper import WhisperModel
+from typing import Dict
+import shutil
+import subprocess as sp
+import tempfile
 
 #=========================================
 # Search Tools
@@ -424,3 +428,64 @@ def transcribe_audio(path: str) -> str:
     )
     text = "".join(seg.text for seg in segments).strip()
     return text
+
+#=========================================
+# Code Tools
+#=========================================
+LANG_COMMANDS: Dict[str, callable] = {
+    ".py": lambda s, _:[["python3", s.name]],
+    ".js": lambda s, _:[["node", s.name]],
+    ".ts": lambda s, _:[["deno", "run", "-A", s.name]],
+    ".sh": lambda s, _:[["bash", s.name]],
+    ".rb": lambda s, _:[["ruby", s.name]],
+    ".php": lambda s, _:[["php", s.name]],
+    ".go": lambda s, _:[["go", "run", s.name]]
+}
+
+@tool
+def execute_source_file(path: str, timeout: int=10) -> str:
+    """
+    Run the program contained in *path*
+    Returns a newline-separated string:
+        >>> EXIT_CODE: <int>
+        >>> STDOUT: <captured stdout>
+        >>> STDERR: <captured stderr>
+    Args:
+        path (str): The path to the source file.
+        timeout (int): The timeout in seconds.
+    Returns:
+        str: A newline-separated string containing the exit code, stdout, and stderr.
+    """
+    src = Path(path).expanduser().resolve(strict=True)
+    if src.suffix not in LANG_COMMANDS:
+        raise ValueError(f"Unsupported file extension: {src.suffix}")
+    
+    # Temp work dir for the program
+    work = Path(tempfile.mkdtemp(prefix="exec_tool_"))
+    shutil.copy(src, work / src.name)
+
+    try:
+        full_out, full_err = "", ""
+
+        for cmd in LANG_COMMANDS[src.suffix](src, work):
+            proc = sp.run(
+                cmd,
+                cwd=work,
+                text=True,
+                capture_output=True,
+                timeout=timeout
+            )
+            full_out += proc.stdout
+            full_err += proc.stderr
+            exit_code = proc.returncode
+            if exit_code != 0:
+                break
+
+        return (
+            f"EXIT_CODE: {exit_code}\n"
+            f"STDOUT: {full_out}\n"
+            f"STDERR: {full_err}"
+        )
+    
+    finally:
+        shutil.rmtree(work)
