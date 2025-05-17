@@ -15,6 +15,10 @@ from typing import Dict
 import shutil
 import subprocess as sp
 import tempfile
+import pandas as pd
+import textwrap
+import io
+import json
 
 #=========================================
 # Search Tools
@@ -489,3 +493,104 @@ def execute_source_file(path: str, timeout: int=10) -> str:
     
     finally:
         shutil.rmtree(work)
+
+#=========================================
+# Tabular data tools
+#=========================================
+MAX_BYTES_RETURN = 200000
+
+# Helper functions
+def _load_table(path: Path, sheet: str) -> pd.DataFrame:
+    """
+    Load a table from a file.
+    Args:
+        path (Path): The path to the file.
+        sheet (str): The sheet to load.
+    Returns:
+        pd.DataFrame: The loaded table.
+    """
+    ext = path.suffix.lower()
+    if ext in (".csv", ".tsv"):
+        return pd.read_csv(path)
+    if ext in (".xlsx", ".xls"):
+        return pd.read_excel(path, sheet_name=sheet)
+    if ext in (".parquet"):
+        return pd.read_parquet(path)
+    raise ValueError(f"Unsupported file extension: {ext}")
+
+def _safe_truncate(text: str, limit: int = MAX_BYTES_RETURN) -> tuple[str, bool]:
+    """
+    Truncate text to a given limit.
+    Args:
+        text (str): The text to truncate.
+        limit (int): The limit in bytes.
+    Returns:
+        tuple[str, bool]: The truncated text and a boolean indicating if truncation occurred.
+    """
+    utf8 = text.encode("utf-8")
+    truncated = len(utf8) > limit
+    if truncated:
+        utf8 = utf8[:limit]
+    return utf8.decode("utf-8", errors="ignore"), truncated
+
+
+@tool
+def interact_tabular(file_path: str, operation: str = "summary", sheet: str = "Sheet1") -> str:
+    """
+    Interact with a tabular data file, such as a CSV, Excel, or Parquet file.
+    Args:
+        path (str): The path to the file.
+        operation (str): The operation to perform: summary | head [N] | select col1,col2 | filter <expr>
+            describe | to_json
+        sheet (str): The sheet to load.
+    Returns:
+        str: The result of the operation.
+    """
+    path = Path(file_path).expanduser().resolve(strict=True)
+    df = _load_table(path, sheet)
+    op, *args = operation.lower().split(maxsplit=1)
+    if op == "summary":
+        result = textwrap.dedent(f"""\
+            rows: {len(df)}
+            columns: {", ".join(df.columns)}
+            dtypes: {df.dtypes.to_string()}
+        """)
+    elif op == "head":
+        n = int(args[0]) if args else 5
+        buf = io.StringIO()
+        df.head(n).to_json(buf, orient="records", lines=True)
+        result = buf.getvalue()
+    elif op == "select":
+        cols = [c.strip() for c in args[0].split(",")]
+        buf = io.StringIO()
+        df[cols].to_json(buf, orient="records", lines=True)
+        result = buf.getvalue()
+    elif op == "filter":
+        expr = args[0]
+        buf = io.StringIO()
+        df.query(expr, engine="python").to_json(buf, orient="records", lines=True)
+        result = buf.getvalue()
+    elif op == "describe":
+        buf = io.StringIO()
+        df.describe(include="all").to_json(buf, orient="records", lines=True)
+        result = buf.getvalue()
+    elif op == "to_json":
+        buf = io.StringIO()
+        df.to_json(buf, orient="records", lines=True)
+        result = buf.getvalue()
+    else:
+        raise ValueError(f"Unsupported operation: {operation}")
+    
+    result, truncated = _safe_truncate(result)
+
+    info = {
+        "file": str(path),
+        "sheet": sheet,
+        "truncated": truncated,
+        "rows_returned": result.count("\n") - 1
+    }
+    return (
+        f"OPERATION: {operation}\n"
+        f"RESULT:\n{result}\n"
+        f"INFO:\n{json.dumps(info, indent=2)}"
+    )
